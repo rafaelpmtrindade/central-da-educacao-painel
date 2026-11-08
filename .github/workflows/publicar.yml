@@ -39,6 +39,30 @@ jobs:
 
       - run: npm ci
 
+      # O empacotador baixa as ferramentas do instalador do Windows (NSIS) na hora e, quando o GitHub responde 504, a
+      # montagem inteira falha (aconteceu em 08/11/2026). Aqui elas são baixadas antes, com até 6 tentativas, na pasta
+      # onde o empacotador procura; se já estiverem lá, ele não baixa de novo.
+      - name: Ferramentas do instalador do Windows (com novas tentativas)
+        if: matrix.sistema == 'windows-latest'
+        shell: pwsh
+        run: |
+          $base = Join-Path $env:LOCALAPPDATA 'tauri'
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+          function Baixar($url, $destino) {
+            for ($i = 1; $i -le 6; $i++) {
+              try { Invoke-WebRequest -Uri $url -OutFile $destino -UseBasicParsing; return }
+              catch { Write-Host "Tentativa $i falhou: $url"; Start-Sleep -Seconds (15 * $i) }
+            }
+            throw "Não deu para baixar $url"
+          }
+          $zip = Join-Path $env:RUNNER_TEMP 'nsis.zip'
+          Baixar 'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip' $zip
+          Expand-Archive -Path $zip -DestinationPath $base -Force
+          if (Test-Path (Join-Path $base 'nsis-3.13')) { Rename-Item (Join-Path $base 'nsis-3.13') 'NSIS' }
+          $plugins = Join-Path $base 'NSIS\Plugins\x86-unicode\additional'
+          New-Item -ItemType Directory -Force -Path $plugins | Out-Null
+          Baixar 'https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll' (Join-Path $plugins 'nsis_tauri_utils.dll')
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
