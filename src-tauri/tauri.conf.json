@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Painel do dia",
+  "mainBinaryName": "Painel do dia",
+  "version": "0.1.0",
+  "identifier": "br.com.vrdois.centraldaeducacao.painel",
+  "build": {
+    "frontendDist": "../abertura"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "app", "dmg"],
+    "createUpdaterArtifacts": true,
+    "publisher": "VRDOIS",
+    "copyright": "Secretaria Municipal de Educação de Vila Rica (MT)",
+    "category": "Productivity",
+    "shortDescription": "Painel do dia da Central da Educação",
+    "longDescription": "Saídas do dia, pedidos, comunicados e avisos da Secretaria Municipal de Educação de Vila Rica, sempre à vista.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["PortugueseBR"],
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAwRjM5NDJGMkExOUM4RkUKUldUK3lCa3FMNVR6QUlVbXZzZGVoWXRnVVJyV3dUM0I4NzZNbm9vSkh2WE5NUEthUmhGTGZWdFAK",
+      "endpoints": ["https://github.com/rafaelpmtrindade/central-da-educacao-painel/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

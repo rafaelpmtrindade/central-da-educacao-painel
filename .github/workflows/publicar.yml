@@ -1,0 +1,55 @@
+# Monta os instaladores do Painel do dia (Windows e Mac) e publica a versão com o arquivo de atualização (latest.json).
+# Roda quando sai uma etiqueta "v*" (ex.: v0.1.1). Os programas já instalados acham a versão nova sozinhos.
+name: Publicar versão
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  montar:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sistema: windows-latest
+            argumentos: ''
+          - sistema: macos-latest
+            argumentos: '--target universal-apple-darwin'
+    runs-on: ${{ matrix.sistema }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.sistema == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Assinatura das atualizações (não é a assinatura paga da Microsoft/Apple): o programa só aceita versão nossa
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Painel do dia ${{ github.ref_name }}'
+          releaseBody: 'Baixe o instalador: Windows (.exe) ou Mac (.dmg). Quem já tem o Painel do dia instalado recebe esta versão sozinho.'
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.argumentos }}
