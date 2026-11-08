@@ -1,7 +1,7 @@
 {
   "name": "central-da-educacao-painel",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Programa Painel do dia da Central da Educação (Secretaria Municipal de Educação de Vila Rica)",
   "scripts": {
     "tauri": "tauri",

@@ -52,7 +52,11 @@ tem só o programa (a "casca") e os instaladores; o código do sistema é privad
   - **Abrir quando o computador ligar**, **Abrir a Central no navegador**, **Procurar atualização** e **Sair**.
 - Widget: preso ao fundo da tela, sem bordas, com cantos arredondados e fora da barra de tarefas; aparece quando a área
   de trabalho está à vista (ou num segundo monitor). Para mudar de lugar, arraste pela faixa de cima (logo e hora); o
-  lugar fica guardado. A altura acompanha o conteúdo.
+  lugar fica guardado. A altura acompanha o conteúdo; o topo e o botão **Abrir a Central** ficam sempre à vista.
+- Por cima das janelas, dá para puxar a borda e escolher a altura: ela fica guardada (também ao reiniciar) e o painel
+  rola por dentro. Para voltar à altura automática, escolha um tamanho no menu.
+- **Que versão está instalada?** Menu do ícone (ou ⋯): a linha **Versão** diz o número e se é a mais nova
+  ("a mais nova", "atualizando" ou "não deu para conferir", quando falta internet).
 - O mesmo menu do ícone abre pelo botão **⋯** no canto do painel (útil no MacBook, quando o ícone some atrás do
   entalhe da câmera).
 - Por cima das janelas: fechar a janela só esconde o painel; ele continua perto do relógio.

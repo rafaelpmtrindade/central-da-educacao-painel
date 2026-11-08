@@ -7,7 +7,13 @@
 //! Segurança: a página só pode pedir ao programa para mostrar notificação (capabilities/remoto.json). Links para o
 //! resto da Central e para outros sites são abertos no navegador pelo próprio programa, nunca pela página.
 
-use std::{fs, path::PathBuf, thread, time::Duration};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::Mutex,
+    thread,
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -38,6 +44,62 @@ struct Preferencias {
     aparencia: Option<String>,
     /// Versão da última abertura (para avisar quando o programa se atualizou)
     versao: Option<String>,
+    /// Identificador aleatório deste programa neste computador (32 letras e números, criado na primeira abertura). Vai
+    /// à Central junto com a versão, para o suporte saber quem tem o programa e se está atualizado; não diz nada do
+    /// computador nem da pessoa.
+    aparelho: Option<String>,
+    /// Altura que a pessoa escolheu puxando a borda da janela. Enquanto existir, a altura não segue mais o conteúdo
+    /// (só o meio do painel rola); escolher um tamanho no menu volta para a altura automática.
+    altura: Option<f64>,
+}
+
+/// O último tamanho que o próprio programa deu à janela, e quando. O sistema avisa do mesmo jeito a mudança feita pelo
+/// programa e a feita pela pessoa puxando a borda; só conta como da pessoa uma altura diferente da que o programa pediu
+/// (restaurar depois de minimizar, mudar a escala da tela ou puxar só a lateral voltam a altura que já era).
+struct UltimoAjuste(Mutex<(Instant, f64)>);
+
+const FOLGA_AJUSTE: Duration = Duration::from_secs(2);
+
+fn marcar_ajuste(app: &AppHandle, altura: Option<f64>) {
+    if let Some(ultimo) = app.try_state::<UltimoAjuste>() {
+        if let Ok(mut guardado) = ultimo.0.lock() {
+            *guardado = (Instant::now(), altura.unwrap_or(guardado.1));
+        }
+    }
+}
+
+fn mudar_tamanho(janela: &tauri::WebviewWindow, largura: f64, altura: f64) {
+    marcar_ajuste(janela.app_handle(), Some(altura));
+    let _ = janela.set_size(LogicalSize::new(largura, altura));
+}
+
+/// A altura escolhida à mão só vale no modo "por cima" (o widget não deixa puxar a borda e segue o conteúdo)
+fn altura_escolhida(preferencias: &Preferencias) -> Option<f64> {
+    preferencias.altura.filter(|_| Modo::ler(preferencias) == Modo::PorCima)
+}
+
+/// A pessoa mudou a altura puxando a borda (modo "por cima"): guarda para valer também nas próximas aberturas
+fn guardar_altura_escolhida(janela: &tauri::WebviewWindow, fisico: tauri::PhysicalSize<u32>) {
+    let app = janela.app_handle();
+    let mut preferencias = ler_preferencias(app);
+    // Minimizar, maximizar e tela cheia também avisam, e não são uma altura escolhida
+    if Modo::ler(&preferencias) != Modo::PorCima
+        || janela.is_minimized().unwrap_or(true)
+        || janela.is_maximized().unwrap_or(true)
+        || janela.is_fullscreen().unwrap_or(true)
+    {
+        return;
+    }
+    let altura = fisico.to_logical::<f64>(janela.scale_factor().unwrap_or(1.0)).height.round();
+    let do_programa = app
+        .try_state::<UltimoAjuste>()
+        .and_then(|ultimo| ultimo.0.lock().ok().map(|guardado| guardado.0.elapsed() < FOLGA_AJUSTE || (altura - guardado.1).abs() <= 2.0))
+        .unwrap_or(true);
+    if do_programa || altura < 240.0 || preferencias.altura == Some(altura) {
+        return;
+    }
+    preferencias.altura = Some(altura);
+    salvar_preferencias(app, &preferencias);
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -63,9 +125,18 @@ impl Tamanho {
         }
     }
     /// O painel publicado, montado para este tamanho
-    fn endereco(self) -> String {
-        format!("https://{SITE}/painel?app=1&tamanho={}", self.nome())
+    fn endereco(self, app: &AppHandle) -> String {
+        format!("https://{SITE}/painel?app=1&tamanho={}{}", self.nome(), identificacao(app))
     }
+}
+
+/// Sistema do computador, como a Central registra
+const SISTEMA: &str = if cfg!(target_os = "macos") { "mac" } else { "windows" };
+
+/// "&versao=0.4.0&sistema=windows&aparelho=…": o painel manda à Central (Administração → Implantação)
+fn identificacao(app: &AppHandle) -> String {
+    let aparelho = ler_preferencias(app).aparelho.unwrap_or_default();
+    format!("&versao={}&sistema={SISTEMA}&aparelho={aparelho}", app.package_info().version)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -101,7 +172,9 @@ fn tamanho_e_lugar(janela: &tauri::WebviewWindow, tamanho: Tamanho) {
             Tamanho::Medio => (420.0, (tela.height - 160.0).clamp(520.0, 720.0)),
             Tamanho::Grande => (480.0, (tela.height - 96.0).clamp(600.0, 960.0)),
         };
-        let _ = janela.set_size(LogicalSize::new(largura, altura));
+        // A altura que a pessoa escolheu vale até ela escolher um tamanho no menu (sem passar da tela)
+        let altura = altura_escolhida(&ler_preferencias(janela.app_handle())).map_or(altura, |escolhida| escolhida.min(tela.height));
+        mudar_tamanho(janela, largura, altura);
         let _ = janela.set_position(LogicalPosition::new((tela.width - largura - 24.0).max(0.0), 40.0));
     }
 }
@@ -171,7 +244,7 @@ fn decidir_navegacao(app: &AppHandle, url: &Url) -> bool {
     if url.host_str() == Some(SITE) && url.path() == "/hoje" && !pediu_navegador {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let painel = Tamanho::ler(&ler_preferencias(&app)).endereco();
+            let painel = Tamanho::ler(&ler_preferencias(&app)).endereco(&app);
             if let (Some(janela), Ok(painel)) = (app.get_webview_window(JANELA), Url::parse(&painel)) {
                 let _ = janela.navigate(painel);
             }
@@ -213,11 +286,23 @@ fn mensagem(app: &AppHandle, titulo: &str, texto: String, tipo: MessageDialogKin
 /// na mais nova ou quando não deu para procurar.
 fn procurar_atualizacao(app: &AppHandle, manual: bool) {
     let Ok(atualizador) = app.updater() else { return };
-    match tauri::async_runtime::block_on(atualizador.check()) {
+    let resultado = tauri::async_runtime::block_on(atualizador.check());
+    mostrar_versao(
+        app,
+        match &resultado {
+            Ok(None) => "a mais nova",
+            Ok(Some(_)) => "atualizando",
+            Err(_) => "não deu para conferir",
+        },
+    );
+    match resultado {
         Ok(Some(atualizacao)) => {
             if tauri::async_runtime::block_on(atualizacao.download_and_install(|_, _| {}, || {})).is_ok() {
                 app.restart();
-            } else if manual {
+            }
+            // Não instalou (sem permissão, internet caiu no meio): o menu não pode ficar dizendo "atualizando"
+            mostrar_versao(app, "não deu para atualizar");
+            if manual {
                 mensagem(
                     app,
                     "Atualização do Painel do dia",
@@ -239,6 +324,13 @@ fn procurar_atualizacao(app: &AppHandle, manual: bool) {
             MessageDialogKind::Warning,
         ),
         _ => {}
+    }
+}
+
+/// O item de versão do menu diz se o programa está em dia (conferido a cada hora e no "Procurar atualização")
+fn mostrar_versao(app: &AppHandle, situacao: &str) {
+    if let Some(itens) = app.try_state::<ItensDoMenu>() {
+        let _ = itens.versao.set_text(format!("Versão {} · {situacao}", app.package_info().version));
     }
 }
 
@@ -311,6 +403,8 @@ struct ItensDoMenu {
     clara: CheckMenuItem<tauri::Wry>,
     escura: CheckMenuItem<tauri::Wry>,
     iniciar: CheckMenuItem<tauri::Wry>,
+    /// "Versão 0.4.0 · a mais nova": o suporte confere aqui se o computador está atualizado
+    versao: MenuItem<tauri::Wry>,
 }
 
 /// Maior altura que a janela pode ter no tamanho escolhido (a altura segue o conteúdo até aqui)
@@ -331,15 +425,17 @@ fn altura_maxima(janela: &tauri::WebviewWindow, tamanho: Tamanho) -> f64 {
 /// A página pede para a janela ter a altura do conteúdo (dentro do limite do tamanho)
 #[tauri::command]
 fn ajustar_altura(janela: tauri::WebviewWindow, altura: f64) {
-    if !altura.is_finite() {
+    let preferencias = ler_preferencias(janela.app_handle());
+    // Com a altura escolhida pela pessoa, ela manda: o painel rola o meio em vez de a janela mudar
+    if !altura.is_finite() || altura_escolhida(&preferencias).is_some() {
         return;
     }
-    let tamanho = Tamanho::ler(&ler_preferencias(janela.app_handle()));
+    let tamanho = Tamanho::ler(&preferencias);
     let altura = altura.clamp(240.0, altura_maxima(&janela, tamanho));
     if let Ok(atual) = janela.inner_size() {
         let escala = janela.scale_factor().unwrap_or(1.0);
         let largura = atual.to_logical::<f64>(escala).width;
-        let _ = janela.set_size(LogicalSize::new(largura, altura));
+        mudar_tamanho(&janela, largura, altura);
     }
 }
 
@@ -362,6 +458,8 @@ fn montar_menu(app: &tauri::App, modo: Modo, tamanho: Tamanho, aparencia: Aparen
     let clara = marcar("aparencia_clara", "Clara", aparencia == Aparencia::Clara)?;
     let escura = marcar("aparencia_escura", "Escura", aparencia == Aparencia::Escura)?;
     let iniciar = marcar("iniciar", "Abrir quando o computador ligar", app.autolaunch().is_enabled().unwrap_or(false))?;
+    // Até a primeira conferência (30 s depois de abrir), só a versão
+    let versao = MenuItem::with_id(app, "versao", format!("Versão {}", app.package_info().version), false, None::<&str>)?;
 
     let menu = Menu::with_items(
         app,
@@ -376,7 +474,7 @@ fn montar_menu(app: &tauri::App, modo: Modo, tamanho: Tamanho, aparencia: Aparen
             &iniciar,
             &MenuItem::with_id(app, "central", "Abrir a Central no navegador", true, None::<&str>)?,
             &MenuItem::with_id(app, "atualizar", "Procurar atualização", true, None::<&str>)?,
-            &MenuItem::with_id(app, "versao", format!("Versão {}", app.package_info().version), false, None::<&str>)?,
+            &versao,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "sair", "Sair do Painel do dia", true, None::<&str>)?,
         ],
@@ -395,7 +493,7 @@ fn montar_menu(app: &tauri::App, modo: Modo, tamanho: Tamanho, aparencia: Aparen
         })
         .build(app)?;
 
-    app.manage(ItensDoMenu { menu, widget, por_cima, pequeno, medio, grande, sistema, clara, escura, iniciar });
+    app.manage(ItensDoMenu { menu, widget, por_cima, pequeno, medio, grande, sistema, clara, escura, iniciar, versao });
     // Um tratador só para o menu do ícone e o menu ⋯ do painel
     app.on_menu_event(|app, evento| tratar_menu(app, evento.id().as_ref()));
     Ok(())
@@ -429,10 +527,12 @@ fn tratar_menu(app: &AppHandle, id: &str) {
             let _ = itens.medio.set_checked(tamanho == Tamanho::Medio);
             let _ = itens.grande.set_checked(tamanho == Tamanho::Grande);
             preferencias.tamanho = Some(tamanho.nome().into());
+            // Escolher um tamanho volta para a altura automática (desfaz a altura puxada à mão)
+            preferencias.altura = None;
             salvar_preferencias(app, &preferencias);
             if let Some(janela) = &janela {
                 tamanho_e_lugar(janela, tamanho);
-                if let Ok(endereco) = Url::parse(&tamanho.endereco()) {
+                if let Ok(endereco) = Url::parse(&tamanho.endereco(app)) {
                     let _ = janela.navigate(endereco);
                 }
                 let _ = janela.show();
@@ -486,6 +586,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![ajustar_altura, abrir_menu])
         .setup(|app| {
+            // Os ajustes de tamanho da abertura (lugar guardado, tamanho do painel) são do programa, não da pessoa
+            app.manage(UltimoAjuste(Mutex::new((Instant::now(), 0.0))));
             let handle = app.handle().clone();
             let mut preferencias = ler_preferencias(&handle);
             let modo = Modo::ler(&preferencias);
@@ -495,7 +597,13 @@ pub fn run() {
             let para_navegacao = handle.clone();
             let para_carga = handle.clone();
             // A tela de abertura confere a internet e abre o painel no tamanho escolhido
-            let abertura = format!("index.html?tamanho={}", tamanho.nome());
+            // Sem identificador, ou com um fora do formato (arquivo mexido à mão): sorteia outro
+            let valido = |a: &str| a.len() == 32 && a.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
+            if !preferencias.aparelho.as_deref().is_some_and(valido) {
+                preferencias.aparelho = Some(uuid::Uuid::new_v4().simple().to_string());
+                salvar_preferencias(&handle, &preferencias);
+            }
+            let abertura = format!("index.html?tamanho={}{}", tamanho.nome(), identificacao(&handle));
             let janela = WebviewWindowBuilder::new(app, JANELA, WebviewUrl::App(abertura.into()))
                 .title("Painel do dia · Central da Educação")
                 .inner_size(420.0, 720.0)
@@ -524,6 +632,9 @@ pub fn run() {
                 WindowEvent::Moved(_) => {
                     let _ = para_eventos.app_handle().save_window_state(StateFlags::POSITION);
                 }
+                WindowEvent::Resized(fisico) => guardar_altura_escolhida(&para_eventos, *fisico),
+                // Mudar a escala da tela redimensiona a janela pelo sistema: não é a pessoa puxando a borda
+                WindowEvent::ScaleFactorChanged { .. } => marcar_ajuste(para_eventos.app_handle(), None),
                 _ => {}
             });
 
@@ -532,6 +643,17 @@ pub fn run() {
             if !preferencias.ja_abriu {
                 // Na primeira vez, já fica para abrir quando o computador ligar (dá para desligar no menu)
                 let _ = handle.autolaunch().enable();
+                // Um aviso de boas-vindas logo na instalação: o Mac pede a permissão de notificação no primeiro aviso, e
+                // assim o primeiro aviso de verdade (um pedido, um comunicado) não se perde no meio desse pedido
+                {
+                    use tauri_plugin_notification::NotificationExt;
+                    let _ = handle
+                        .notification()
+                        .builder()
+                        .title("Painel do dia instalado")
+                        .body("Os avisos de pedidos, respostas e comunicados vão aparecer assim.")
+                        .show();
+                }
                 preferencias.ja_abriu = true;
                 preferencias.modo = Some(modo.nome().into());
                 preferencias.tamanho = Some(tamanho.nome().into());
