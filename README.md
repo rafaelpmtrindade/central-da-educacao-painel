@@ -1,8 +1,9 @@
 # Painel do dia · Central da Educação
 
 Programa de computador (Windows e Mac) da **Central da Educação**, da Secretaria Municipal de Educação de Vila Rica (MT).
-Mostra o Painel do dia (saídas, pedidos, comunicados e agenda) numa janela pequena, **sempre por cima das outras
-janelas**, aberta **quando o computador liga**, com **avisos** (notificação e som) e **atualização sozinha**.
+Mostra o Painel do dia (saídas, pedidos para aprovar, comunicados e agenda) como um **widget na área de trabalho** (ou,
+se preferir, numa janela **sempre por cima das outras**), aberto **quando o computador liga**, com **avisos**
+(notificação e som) e **atualização sozinha**.
 
 O conteúdo vem do sistema publicado (https://central-da-educacao.vercel.app) e se atualiza na hora. Este repositório
 tem só o programa (a "casca") e os instaladores; o código do sistema é privado.
@@ -21,10 +22,14 @@ vez; o login fica guardado.
 
 ## Usar
 
-- **Ícone perto do relógio** (Windows) ou na barra de cima (Mac): clique para mostrar o painel; o menu tem "Sempre por
-  cima das outras janelas", "Abrir quando o computador ligar", "Abrir a Central no navegador", "Procurar atualização"
-  e "Sair".
-- Fechar a janela só esconde o painel: ele continua perto do relógio.
+- **Ícone perto do relógio** (Windows) ou na barra de cima (Mac): clique para mostrar o painel. O menu tem:
+  - **Mostrar como widget na área de trabalho** (vem marcado) ou **Mostrar por cima das janelas**;
+  - **Tamanho**: Pequeno, Médio (vem marcado) ou Grande;
+  - **Abrir quando o computador ligar**, **Abrir a Central no navegador**, **Procurar atualização** e **Sair**.
+- Widget: preso ao fundo da tela, sem bordas e fora da barra de tarefas; aparece quando a área de trabalho está à
+  vista (ou num segundo monitor). Para mudar de lugar, arraste pela faixa de cima (logo e hora).
+- Por cima das janelas: fechar a janela só esconde o painel; ele continua perto do relógio.
+- Pedidos para decidir: **Aprovar** e **Recusar** no próprio painel.
 - Avisos (pedido para decidir, resposta, saída cancelada, comunicado importante, lembrete da saída): escolha quais
   em **Meu perfil → Avisos**, na Central.
 

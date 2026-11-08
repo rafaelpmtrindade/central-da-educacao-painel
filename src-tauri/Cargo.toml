@@ -1,6 +1,6 @@
 [package]
 name = "painel-do-dia"
-version = "0.1.0"
+version = "0.2.0"
 description = "Painel do dia da Central da Educação"
 authors = ["VRDOIS"]
 edition = "2021"

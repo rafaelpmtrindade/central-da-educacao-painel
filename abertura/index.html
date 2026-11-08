@@ -51,7 +51,10 @@
     <script>
       // Confere se a Central responde antes de abrir o painel: sem internet, a pessoa vê este aviso (e não a página
       // de erro do sistema), e o programa tenta de novo sozinho.
-      const PAINEL = 'https://central-da-educacao.vercel.app/painel?compacto&app=1';
+      // Tamanho escolhido no menu do ícone (pequeno, médio ou grande); o programa manda pelo endereço desta tela
+      const pedido = new URLSearchParams(location.search).get('tamanho');
+      const tamanho = ['pequeno', 'medio', 'grande'].includes(pedido) ? pedido : 'medio';
+      const PAINEL = 'https://central-da-educacao.vercel.app/painel?app=1&tamanho=' + tamanho;
       const situacao = document.getElementById('situacao');
       async function tentar() {
         try {

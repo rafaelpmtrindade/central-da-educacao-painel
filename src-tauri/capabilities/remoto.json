@@ -1,10 +1,10 @@
 {
   "$schema": "../gen/schemas/remote-schema.json",
   "identifier": "remoto",
-  "description": "O que a página da Central pode pedir ao programa: só mostrar notificação. Abrir links, arquivos e o resto ficam só com o programa.",
+  "description": "O que a página da Central pode pedir ao programa: mostrar notificação e arrastar a janela pela faixa de cima (o widget não tem barra de título). Abrir links, arquivos e o resto ficam só com o programa.",
   "windows": ["painel"],
   "remote": {
     "urls": ["https://central-da-educacao.vercel.app/*"]
   },
-  "permissions": ["notification:default"]
+  "permissions": ["notification:default", "core:window:allow-start-dragging"]
 }
