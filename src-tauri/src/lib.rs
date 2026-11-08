@@ -73,6 +73,8 @@ fn fica_no_programa(url: &Url) -> bool {
 
 /// Toda navegação passa por aqui. O que não é do painel abre no navegador e a janela fica onde estava.
 fn decidir_navegacao(app: &AppHandle, url: &Url) -> bool {
+    #[cfg(debug_assertions)]
+    eprintln!("[painel] navegar: {url}");
     let pediu_navegador = url.query_pairs().any(|(chave, _)| chave == "no-navegador");
     if fica_no_programa(url) && !pediu_navegador {
         return true;
@@ -271,6 +273,11 @@ pub fn run() {
                 .min_inner_size(360.0, 480.0)
                 .always_on_top(por_cima)
                 .on_navigation(move |url| decidir_navegacao(&para_navegacao, url))
+                .on_page_load(|_janela, carga| {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[painel] página {:?}: {}", carga.event(), carga.url());
+                    let _ = carga;
+                })
                 .build()?;
 
             // Fechar a janela só esconde: o painel continua perto do relógio (para sair: menu do ícone)
