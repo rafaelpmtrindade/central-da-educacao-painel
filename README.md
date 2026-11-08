@@ -8,17 +8,40 @@ se preferir, numa janela **sempre por cima das outras**), aberto **quando o comp
 O conteúdo vem do sistema publicado (https://central-da-educacao.vercel.app) e se atualiza na hora. Este repositório
 tem só o programa (a "casca") e os instaladores; o código do sistema é privado.
 
-## Instalar
+## Instalar (passo a passo)
 
-Baixe o instalador da versão mais nova em **Releases**:
+**Baixar:** abra https://github.com/rafaelpmtrindade/central-da-educacao-painel/releases/latest e baixe:
 
-- **Windows**: `Painel.do.dia_x.y.z_x64-setup.exe`. Na primeira vez o Windows pode avisar "O Windows protegeu o
-  computador": clique em **Mais informações** → **Executar assim mesmo**. Não precisa de senha de administrador.
-- **Mac**: `Painel.do.dia_x.y.z_universal.dmg`. Arraste para Aplicativos. Na primeira vez o Mac avisa que não pode
-  verificar o programa: em **Ajustes do Sistema → Privacidade e Segurança**, clique em **Abrir Mesmo Assim**.
+- **Windows**: o arquivo que termina em **`_x64-setup.exe`**;
+- **Mac**: o arquivo que termina em **`_universal.dmg`**.
 
-Depois de instalado, ele abre sozinho a cada vez que o computador liga. Entre com o seu e-mail e senha da Central uma
-vez; o login fica guardado.
+### Windows
+
+1. Dê dois cliques no arquivo baixado.
+2. Se aparecer **"O Windows protegeu o computador"**: clique em **Mais informações** e depois em **Executar assim
+   mesmo**. (Aparece porque o programa não tem a assinatura paga da Microsoft; é só na instalação.)
+3. Siga o instalador (**Avançar** → **Instalar** → **Concluir**). Não pede senha de administrador: fica instalado para
+   o usuário do Windows que está usando o computador.
+4. O Painel do dia abre sozinho no canto de cima, à direita, como widget na área de trabalho.
+5. **Entre com o e-mail e a senha da Central** da pessoa que usa o computador. O login fica guardado.
+6. Pronto: a partir de agora ele abre sozinho quando o computador liga.
+
+### Mac
+
+1. Abra o arquivo `.dmg` e arraste o **Painel do dia** para **Aplicativos**.
+2. Abra o Painel do dia em Aplicativos. Na primeira vez o Mac avisa que não pode verificar o programa: abra **Ajustes
+   do Sistema → Privacidade e Segurança**, role até o fim e clique em **Abrir Mesmo Assim**.
+3. Entre com o e-mail e a senha da Central. Se o Mac perguntar se o Painel do dia pode mostrar notificações, clique em
+   **Permitir**.
+
+### Depois de instalado
+
+- O ícone do brasão fica perto do relógio (Windows; às vezes dentro da setinha **^**) ou na barra de cima (Mac).
+  Clique nele para mostrar o painel; o menu traz as opções abaixo.
+- Se a pessoa preferir o painel sempre à vista por cima dos outros programas: menu do ícone → **Mostrar por cima das
+  janelas**. Para um painel menor ou maior: **Tamanho**.
+- Os avisos que a pessoa recebe (pedido para decidir, resposta, saída cancelada, comunicado importante, lembrete da
+  saída) se escolhem na Central, em **Meu perfil → Avisos**.
 
 ## Usar
 
