@@ -16,14 +16,15 @@ use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 const SITE: &str = "central-da-educacao.vercel.app";
 const CENTRAL: &str = "https://central-da-educacao.vercel.app/hoje";
 const JANELA: &str = "painel";
-/// De quanto em quanto tempo o programa procura versão nova
-const INTERVALO_ATUALIZACAO: Duration = Duration::from_secs(6 * 60 * 60);
+/// De quanto em quanto tempo o programa procura versão nova (o widget fica aberto o dia todo)
+const INTERVALO_ATUALIZACAO: Duration = Duration::from_secs(60 * 60);
 
 /// O que o programa lembra entre uma abertura e outra (o tamanho e o lugar da janela ficam com o window-state)
 #[derive(Serialize, Deserialize, Default)]
@@ -33,6 +34,10 @@ struct Preferencias {
     modo: Option<String>,
     /// "pequeno", "medio" (o padrão) ou "grande"
     tamanho: Option<String>,
+    /// "sistema" (o padrão), "clara" ou "escura"
+    aparencia: Option<String>,
+    /// Versão da última abertura (para avisar quando o programa se atualizou)
+    versao: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -203,32 +208,22 @@ fn mensagem(app: &AppHandle, titulo: &str, texto: String, tipo: MessageDialogKin
     app.dialog().message(texto).title(titulo).kind(tipo).blocking_show();
 }
 
-/// Procura versão nova. Se houver, pergunta e atualiza: baixa, instala e abre de novo, sem reinstalar à mão.
+/// Procura versão nova e atualiza sozinho: baixa, instala e abre de novo em poucos segundos, sem pedir clique (como o
+/// Chrome). Ao reabrir, avisa com uma notificação. `manual` (menu "Procurar atualização"): também diz quando já está
+/// na mais nova ou quando não deu para procurar.
 fn procurar_atualizacao(app: &AppHandle, manual: bool) {
     let Ok(atualizador) = app.updater() else { return };
     match tauri::async_runtime::block_on(atualizador.check()) {
         Ok(Some(atualizacao)) => {
-            let versao = atualizacao.version.clone();
-            let aceitou = app
-                .dialog()
-                .message(format!(
-                    "Saiu a versão {versao} do Painel do dia.\n\nAtualizar agora? O painel fecha e abre de novo em instantes."
-                ))
-                .title("Atualização do Painel do dia")
-                .kind(MessageDialogKind::Info)
-                .buttons(MessageDialogButtons::OkCancelCustom("Atualizar agora".into(), "Depois".into()))
-                .blocking_show();
-            if !aceitou {
-                return;
-            }
-            match tauri::async_runtime::block_on(atualizacao.download_and_install(|_, _| {}, || {})) {
-                Ok(()) => app.restart(),
-                Err(_) => mensagem(
+            if tauri::async_runtime::block_on(atualizacao.download_and_install(|_, _| {}, || {})).is_ok() {
+                app.restart();
+            } else if manual {
+                mensagem(
                     app,
                     "Atualização do Painel do dia",
                     "Não deu para atualizar agora. O painel continua funcionando; ele tenta de novo mais tarde.".into(),
                     MessageDialogKind::Warning,
-                ),
+                );
             }
         }
         Ok(None) if manual => mensagem(
@@ -247,57 +242,143 @@ fn procurar_atualizacao(app: &AppHandle, manual: bool) {
     }
 }
 
-fn montar_bandeja(app: &tauri::App, modo: Modo, tamanho: Tamanho) -> tauri::Result<()> {
-    let mostrar = MenuItem::with_id(app, "mostrar", "Mostrar o painel", true, None::<&str>)?;
-    let item_widget = CheckMenuItem::with_id(
-        app,
-        "modo_widget",
-        "Mostrar como widget na área de trabalho",
-        true,
-        modo == Modo::Widget,
-        None::<&str>,
-    )?;
-    let item_por_cima = CheckMenuItem::with_id(
-        app,
-        "modo_por_cima",
-        "Mostrar por cima das janelas",
-        true,
-        modo == Modo::PorCima,
-        None::<&str>,
-    )?;
-    let item_pequeno = CheckMenuItem::with_id(app, "tamanho_pequeno", "Pequeno", true, tamanho == Tamanho::Pequeno, None::<&str>)?;
-    let item_medio = CheckMenuItem::with_id(app, "tamanho_medio", "Médio", true, tamanho == Tamanho::Medio, None::<&str>)?;
-    let item_grande = CheckMenuItem::with_id(app, "tamanho_grande", "Grande", true, tamanho == Tamanho::Grande, None::<&str>)?;
-    let submenu_tamanho = Submenu::with_items(app, "Tamanho", true, &[&item_pequeno, &item_medio, &item_grande])?;
-    let ligado = app.autolaunch().is_enabled().unwrap_or(false);
-    let item_iniciar =
-        CheckMenuItem::with_id(app, "iniciar", "Abrir quando o computador ligar", true, ligado, None::<&str>)?;
-    let central = MenuItem::with_id(app, "central", "Abrir a Central no navegador", true, None::<&str>)?;
-    let atualizar = MenuItem::with_id(app, "atualizar", "Procurar atualização", true, None::<&str>)?;
-    let versao = MenuItem::with_id(
-        app,
-        "versao",
-        format!("Versão {}", app.package_info().version),
-        false,
-        None::<&str>,
-    )?;
-    let sair = MenuItem::with_id(app, "sair", "Sair do Painel do dia", true, None::<&str>)?;
+/// Depois de uma atualização: avisa com uma notificação que o programa mudou de versão
+fn avisar_se_atualizou(app: &AppHandle, preferencias: &mut Preferencias) {
+    let atual = app.package_info().version.to_string();
+    if let Some(antes) = preferencias.versao.as_deref() {
+        if antes != atual {
+            use tauri_plugin_notification::NotificationExt;
+            let _ = app
+                .notification()
+                .builder()
+                .title("Painel do dia atualizado")
+                .body(format!("Agora na versão {atual}."))
+                .show();
+        }
+    }
+    preferencias.versao = Some(atual);
+}
+
+/// Aparência do painel no programa: igual ao sistema (o padrão), clara ou escura. Fica com o programa e é aplicada à
+/// página a cada carregamento (a Central guarda a escolha no aparelho, na chave do tema).
+#[derive(Clone, Copy, PartialEq)]
+enum Aparencia {
+    Sistema,
+    Clara,
+    Escura,
+}
+
+impl Aparencia {
+    fn ler(preferencias: &Preferencias) -> Aparencia {
+        match preferencias.aparencia.as_deref() {
+            Some("clara") => Aparencia::Clara,
+            Some("escura") => Aparencia::Escura,
+            _ => Aparencia::Sistema,
+        }
+    }
+    fn nome(self) -> &'static str {
+        match self {
+            Aparencia::Sistema => "sistema",
+            Aparencia::Clara => "clara",
+            Aparencia::Escura => "escura",
+        }
+    }
+    /// Script que põe a aparência na página da Central (mesma chave e mesmos valores de src/componentes/SeletorTema.tsx)
+    fn script(self) -> &'static str {
+        match self {
+            Aparencia::Sistema => {
+                "try{localStorage.setItem('central-educacao-tema','auto')}catch(e){};document.documentElement.dataset.tema='auto'"
+            }
+            Aparencia::Escura => {
+                "try{localStorage.setItem('central-educacao-tema','escuro')}catch(e){};document.documentElement.dataset.tema='escuro'"
+            }
+            Aparencia::Clara => {
+                "try{localStorage.removeItem('central-educacao-tema')}catch(e){};delete document.documentElement.dataset.tema"
+            }
+        }
+    }
+}
+
+/// Os itens marcáveis do menu, guardados para o menu do ícone e o menu ⋯ do painel (os dois são o mesmo menu)
+struct ItensDoMenu {
+    menu: Menu<tauri::Wry>,
+    widget: CheckMenuItem<tauri::Wry>,
+    por_cima: CheckMenuItem<tauri::Wry>,
+    pequeno: CheckMenuItem<tauri::Wry>,
+    medio: CheckMenuItem<tauri::Wry>,
+    grande: CheckMenuItem<tauri::Wry>,
+    sistema: CheckMenuItem<tauri::Wry>,
+    clara: CheckMenuItem<tauri::Wry>,
+    escura: CheckMenuItem<tauri::Wry>,
+    iniciar: CheckMenuItem<tauri::Wry>,
+}
+
+/// Maior altura que a janela pode ter no tamanho escolhido (a altura segue o conteúdo até aqui)
+fn altura_maxima(janela: &tauri::WebviewWindow, tamanho: Tamanho) -> f64 {
+    let tela = janela
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.size().to_logical::<f64>(m.scale_factor()).height)
+        .unwrap_or(900.0);
+    match tamanho {
+        Tamanho::Pequeno => (tela - 160.0).clamp(420.0, 560.0),
+        Tamanho::Medio => (tela - 160.0).clamp(520.0, 720.0),
+        Tamanho::Grande => (tela - 96.0).clamp(600.0, 960.0),
+    }
+}
+
+/// A página pede para a janela ter a altura do conteúdo (dentro do limite do tamanho)
+#[tauri::command]
+fn ajustar_altura(janela: tauri::WebviewWindow, altura: f64) {
+    if !altura.is_finite() {
+        return;
+    }
+    let tamanho = Tamanho::ler(&ler_preferencias(janela.app_handle()));
+    let altura = altura.clamp(240.0, altura_maxima(&janela, tamanho));
+    if let Ok(atual) = janela.inner_size() {
+        let escala = janela.scale_factor().unwrap_or(1.0);
+        let largura = atual.to_logical::<f64>(escala).width;
+        let _ = janela.set_size(LogicalSize::new(largura, altura));
+    }
+}
+
+/// O botão ⋯ do painel abre o mesmo menu do ícone (útil quando o ícone some atrás do entalhe do MacBook)
+#[tauri::command]
+fn abrir_menu(janela: tauri::WebviewWindow) {
+    if let Some(itens) = janela.app_handle().try_state::<ItensDoMenu>() {
+        let _ = janela.popup_menu(&itens.menu);
+    }
+}
+
+fn montar_menu(app: &tauri::App, modo: Modo, tamanho: Tamanho, aparencia: Aparencia) -> tauri::Result<()> {
+    let marcar = |id: &str, texto: &str, marcado: bool| CheckMenuItem::with_id(app, id, texto, true, marcado, None::<&str>);
+    let widget = marcar("modo_widget", "Fixo na área de trabalho (widget)", modo == Modo::Widget)?;
+    let por_cima = marcar("modo_por_cima", "Por cima das janelas", modo == Modo::PorCima)?;
+    let pequeno = marcar("tamanho_pequeno", "Pequeno", tamanho == Tamanho::Pequeno)?;
+    let medio = marcar("tamanho_medio", "Médio", tamanho == Tamanho::Medio)?;
+    let grande = marcar("tamanho_grande", "Grande", tamanho == Tamanho::Grande)?;
+    let sistema = marcar("aparencia_sistema", "Igual ao sistema", aparencia == Aparencia::Sistema)?;
+    let clara = marcar("aparencia_clara", "Clara", aparencia == Aparencia::Clara)?;
+    let escura = marcar("aparencia_escura", "Escura", aparencia == Aparencia::Escura)?;
+    let iniciar = marcar("iniciar", "Abrir quando o computador ligar", app.autolaunch().is_enabled().unwrap_or(false))?;
+
     let menu = Menu::with_items(
         app,
         &[
-            &mostrar,
+            &MenuItem::with_id(app, "mostrar", "Mostrar o painel", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &item_widget,
-            &item_por_cima,
-            &submenu_tamanho,
+            &widget,
+            &por_cima,
+            &Submenu::with_items(app, "Tamanho", true, &[&pequeno, &medio, &grande])?,
+            &Submenu::with_items(app, "Aparência", true, &[&sistema, &clara, &escura])?,
             &PredefinedMenuItem::separator(app)?,
-            &item_iniciar,
+            &iniciar,
+            &MenuItem::with_id(app, "central", "Abrir a Central no navegador", true, None::<&str>)?,
+            &MenuItem::with_id(app, "atualizar", "Procurar atualização", true, None::<&str>)?,
+            &MenuItem::with_id(app, "versao", format!("Versão {}", app.package_info().version), false, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &central,
-            &atualizar,
-            &versao,
-            &PredefinedMenuItem::separator(app)?,
-            &sair,
+            &MenuItem::with_id(app, "sair", "Sair do Painel do dia", true, None::<&str>)?,
         ],
     )?;
 
@@ -307,66 +388,89 @@ fn montar_bandeja(app: &tauri::App, modo: Modo, tamanho: Tamanho) -> tauri::Resu
         .tooltip("Painel do dia · Central da Educação")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(move |app, evento| match evento.id().as_ref() {
-            "mostrar" => mostrar_painel(app),
-            "modo_widget" | "modo_por_cima" => {
-                // Os dois itens funcionam como uma escolha só: marcar um desmarca o outro
-                let modo = if evento.id().as_ref() == "modo_widget" { Modo::Widget } else { Modo::PorCima };
-                let _ = item_widget.set_checked(modo == Modo::Widget);
-                let _ = item_por_cima.set_checked(modo == Modo::PorCima);
-                let mut preferencias = ler_preferencias(app);
-                if let Some(janela) = app.get_webview_window(JANELA) {
-                    aplicar_modo(&janela, modo, Tamanho::ler(&preferencias), true);
-                    let _ = janela.show();
-                }
-                preferencias.modo = Some(modo.nome().into());
-                salvar_preferencias(app, &preferencias);
-            }
-            "tamanho_pequeno" | "tamanho_medio" | "tamanho_grande" => {
-                let tamanho = match evento.id().as_ref() {
-                    "tamanho_pequeno" => Tamanho::Pequeno,
-                    "tamanho_grande" => Tamanho::Grande,
-                    _ => Tamanho::Medio,
-                };
-                let _ = item_pequeno.set_checked(tamanho == Tamanho::Pequeno);
-                let _ = item_medio.set_checked(tamanho == Tamanho::Medio);
-                let _ = item_grande.set_checked(tamanho == Tamanho::Grande);
-                let mut preferencias = ler_preferencias(app);
-                preferencias.tamanho = Some(tamanho.nome().into());
-                salvar_preferencias(app, &preferencias);
-                if let Some(janela) = app.get_webview_window(JANELA) {
-                    tamanho_e_lugar(&janela, tamanho);
-                    if let Ok(endereco) = Url::parse(&tamanho.endereco()) {
-                        let _ = janela.navigate(endereco);
-                    }
-                    let _ = janela.show();
-                }
-            }
-            "iniciar" => {
-                let gerenciador = app.autolaunch();
-                let _ = if item_iniciar.is_checked().unwrap_or(false) {
-                    gerenciador.enable()
-                } else {
-                    gerenciador.disable()
-                };
-            }
-            "central" => {
-                let _ = tauri_plugin_opener::open_url(CENTRAL, None::<&str>);
-            }
-            "atualizar" => {
-                let app = app.clone();
-                thread::spawn(move || procurar_atualizacao(&app, true));
-            }
-            "sair" => app.exit(0),
-            _ => {}
-        })
         .on_tray_icon_event(|bandeja, evento| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = evento {
                 mostrar_painel(bandeja.app_handle());
             }
         })
         .build(app)?;
+
+    app.manage(ItensDoMenu { menu, widget, por_cima, pequeno, medio, grande, sistema, clara, escura, iniciar });
+    // Um tratador só para o menu do ícone e o menu ⋯ do painel
+    app.on_menu_event(|app, evento| tratar_menu(app, evento.id().as_ref()));
     Ok(())
+}
+
+fn tratar_menu(app: &AppHandle, id: &str) {
+    let Some(itens) = app.try_state::<ItensDoMenu>() else { return };
+    let janela = app.get_webview_window(JANELA);
+    let mut preferencias = ler_preferencias(app);
+    match id {
+        "mostrar" => mostrar_painel(app),
+        "modo_widget" | "modo_por_cima" => {
+            // Os dois itens funcionam como uma escolha só: marcar um desmarca o outro
+            let modo = if id == "modo_widget" { Modo::Widget } else { Modo::PorCima };
+            let _ = itens.widget.set_checked(modo == Modo::Widget);
+            let _ = itens.por_cima.set_checked(modo == Modo::PorCima);
+            if let Some(janela) = &janela {
+                aplicar_modo(janela, modo, Tamanho::ler(&preferencias), true);
+                let _ = janela.show();
+            }
+            preferencias.modo = Some(modo.nome().into());
+            salvar_preferencias(app, &preferencias);
+        }
+        "tamanho_pequeno" | "tamanho_medio" | "tamanho_grande" => {
+            let tamanho = match id {
+                "tamanho_pequeno" => Tamanho::Pequeno,
+                "tamanho_grande" => Tamanho::Grande,
+                _ => Tamanho::Medio,
+            };
+            let _ = itens.pequeno.set_checked(tamanho == Tamanho::Pequeno);
+            let _ = itens.medio.set_checked(tamanho == Tamanho::Medio);
+            let _ = itens.grande.set_checked(tamanho == Tamanho::Grande);
+            preferencias.tamanho = Some(tamanho.nome().into());
+            salvar_preferencias(app, &preferencias);
+            if let Some(janela) = &janela {
+                tamanho_e_lugar(janela, tamanho);
+                if let Ok(endereco) = Url::parse(&tamanho.endereco()) {
+                    let _ = janela.navigate(endereco);
+                }
+                let _ = janela.show();
+            }
+        }
+        "aparencia_sistema" | "aparencia_clara" | "aparencia_escura" => {
+            let aparencia = match id {
+                "aparencia_clara" => Aparencia::Clara,
+                "aparencia_escura" => Aparencia::Escura,
+                _ => Aparencia::Sistema,
+            };
+            let _ = itens.sistema.set_checked(aparencia == Aparencia::Sistema);
+            let _ = itens.clara.set_checked(aparencia == Aparencia::Clara);
+            let _ = itens.escura.set_checked(aparencia == Aparencia::Escura);
+            preferencias.aparencia = Some(aparencia.nome().into());
+            salvar_preferencias(app, &preferencias);
+            if let Some(janela) = &janela {
+                let _ = janela.eval(aparencia.script());
+            }
+        }
+        "iniciar" => {
+            let gerenciador = app.autolaunch();
+            let _ = if itens.iniciar.is_checked().unwrap_or(false) {
+                gerenciador.enable()
+            } else {
+                gerenciador.disable()
+            };
+        }
+        "central" => {
+            let _ = tauri_plugin_opener::open_url(CENTRAL, None::<&str>);
+        }
+        "atualizar" => {
+            let app = app.clone();
+            thread::spawn(move || procurar_atualizacao(&app, true));
+        }
+        "sair" => app.exit(0),
+        _ => {}
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -380,57 +484,74 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![ajustar_altura, abrir_menu])
         .setup(|app| {
             let handle = app.handle().clone();
             let mut preferencias = ler_preferencias(&handle);
             let modo = Modo::ler(&preferencias);
             let tamanho = Tamanho::ler(&preferencias);
+            let aparencia = Aparencia::ler(&preferencias);
 
             let para_navegacao = handle.clone();
+            let para_carga = handle.clone();
             // A tela de abertura confere a internet e abre o painel no tamanho escolhido
             let abertura = format!("index.html?tamanho={}", tamanho.nome());
             let janela = WebviewWindowBuilder::new(app, JANELA, WebviewUrl::App(abertura.into()))
                 .title("Painel do dia · Central da Educação")
-                .inner_size(400.0, 820.0)
-                .min_inner_size(360.0, 480.0)
+                .inner_size(420.0, 720.0)
+                .min_inner_size(320.0, 240.0)
+                // Transparente: o painel desenha o próprio cartão de cantos arredondados
+                .transparent(true)
                 .on_navigation(move |url| decidir_navegacao(&para_navegacao, url))
-                .on_page_load(|_janela, carga| {
+                .on_page_load(move |janela, carga| {
                     #[cfg(debug_assertions)]
                     eprintln!("[painel] página {:?}: {}", carga.event(), carga.url());
-                    let _ = carga;
+                    // Cada vez que a Central carrega, recebe a aparência escolhida no programa
+                    if matches!(carga.event(), tauri::webview::PageLoadEvent::Finished) && carga.url().host_str() == Some(SITE) {
+                        let _ = janela.eval(Aparencia::ler(&ler_preferencias(&para_carga)).script());
+                    }
                 })
                 .build()?;
 
-            // Fechar a janela só esconde: o painel continua perto do relógio (para sair: menu do ícone)
-            let para_fechar = janela.clone();
-            janela.on_window_event(move |evento| {
-                if let WindowEvent::CloseRequested { api, .. } = evento {
+            let para_eventos = janela.clone();
+            janela.on_window_event(move |evento| match evento {
+                // Fechar a janela só esconde: o painel continua perto do relógio (para sair: menu do ícone ou ⋯)
+                WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
-                    let _ = para_fechar.hide();
+                    let _ = para_eventos.hide();
                 }
+                // O lugar fica guardado assim que a pessoa solta a janela (vale mesmo se o computador desligar de repente)
+                WindowEvent::Moved(_) => {
+                    let _ = para_eventos.app_handle().save_window_state(StateFlags::POSITION);
+                }
+                _ => {}
             });
 
             // Primeira vez: tamanho e lugar conforme a tela; depois, vale o que a pessoa deixou (window-state)
             aplicar_modo(&janela, modo, tamanho, !preferencias.ja_abriu);
             if !preferencias.ja_abriu {
-                // Na primeira vez, já fica para abrir quando o computador ligar (dá para desligar no menu do ícone)
+                // Na primeira vez, já fica para abrir quando o computador ligar (dá para desligar no menu)
                 let _ = handle.autolaunch().enable();
                 preferencias.ja_abriu = true;
                 preferencias.modo = Some(modo.nome().into());
                 preferencias.tamanho = Some(tamanho.nome().into());
+                preferencias.aparencia = Some(aparencia.nome().into());
                 salvar_preferencias(&handle, &preferencias);
             }
 
-            // No Mac, sem ícone no Dock: o painel se acessa pelo ícone na barra de cima
+            avisar_se_atualizou(&handle, &mut preferencias);
+            salvar_preferencias(&handle, &preferencias);
+
+            // No Mac, sem ícone no Dock: o painel se acessa pelo ícone na barra de cima (ou pelo ⋯ do painel)
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            montar_bandeja(app, modo, tamanho)?;
+            montar_menu(app, modo, tamanho, aparencia)?;
 
             // Procura atualização pouco depois de abrir e depois de tempos em tempos
             let para_atualizar = handle.clone();
             thread::spawn(move || {
-                thread::sleep(Duration::from_secs(20));
+                thread::sleep(Duration::from_secs(30));
                 loop {
                     procurar_atualizacao(&para_atualizar, false);
                     thread::sleep(INTERVALO_ATUALIZACAO);

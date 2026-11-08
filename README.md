@@ -48,9 +48,13 @@ tem só o programa (a "casca") e os instaladores; o código do sistema é privad
 - **Ícone perto do relógio** (Windows) ou na barra de cima (Mac): clique para mostrar o painel. O menu tem:
   - **Mostrar como widget na área de trabalho** (vem marcado) ou **Mostrar por cima das janelas**;
   - **Tamanho**: Pequeno, Médio (vem marcado) ou Grande;
+  - **Aparência**: Igual ao sistema (vem marcado), Clara ou Escura;
   - **Abrir quando o computador ligar**, **Abrir a Central no navegador**, **Procurar atualização** e **Sair**.
-- Widget: preso ao fundo da tela, sem bordas e fora da barra de tarefas; aparece quando a área de trabalho está à
-  vista (ou num segundo monitor). Para mudar de lugar, arraste pela faixa de cima (logo e hora).
+- Widget: preso ao fundo da tela, sem bordas, com cantos arredondados e fora da barra de tarefas; aparece quando a área
+  de trabalho está à vista (ou num segundo monitor). Para mudar de lugar, arraste pela faixa de cima (logo e hora); o
+  lugar fica guardado. A altura acompanha o conteúdo.
+- O mesmo menu do ícone abre pelo botão **⋯** no canto do painel (útil no MacBook, quando o ícone some atrás do
+  entalhe da câmera).
 - Por cima das janelas: fechar a janela só esconde o painel; ele continua perto do relógio.
 - Pedidos para decidir: **Aprovar** e **Recusar** no próprio painel.
 - Avisos (pedido para decidir, resposta, saída cancelada, comunicado importante, lembrete da saída): escolha quais
@@ -58,8 +62,9 @@ tem só o programa (a "casca") e os instaladores; o código do sistema é privad
 
 ## Atualizar
 
-Sozinho: o programa procura versão nova ao abrir e a cada 6 horas e pergunta antes de atualizar. Cada versão é
-assinada; o programa recusa qualquer atualização que não seja nossa.
+Sozinho, sem precisar clicar: o programa procura versão nova ao abrir e a cada hora; quando acha, baixa, instala e
+abre de novo em poucos segundos, e avisa com uma notificação. Para forçar na hora: menu → **Procurar atualização**.
+Cada versão é assinada; o programa recusa qualquer atualização que não seja nossa.
 
 ## Publicar uma versão nova (VRDOIS)
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ajustar-altura"
+description = "Enables the ajustar_altura command without any pre-configured scope."
+commands.allow = ["ajustar_altura"]
+
+[[permission]]
+identifier = "deny-ajustar-altura"
+description = "Denies the ajustar_altura command without any pre-configured scope."
+commands.deny = ["ajustar_altura"]

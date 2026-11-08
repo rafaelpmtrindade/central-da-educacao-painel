@@ -11,6 +11,7 @@
         --texto: #13241a;
         --texto-2: #4b5a51;
         --alerta: #8f5200;
+        --borda: #c5cfc8;
         --fonte: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
       }
       @media (prefers-color-scheme: dark) {
@@ -19,14 +20,19 @@
           --texto: #e9eaec;
           --texto-2: #b3b7bc;
           --alerta: #e8a64a;
+          --borda: #3b3e42;
         }
       }
       * { box-sizing: border-box; margin: 0; }
+      /* A janela do programa é transparente: a tela de abertura é um cartão de cantos arredondados */
+      html { background: transparent; }
       body {
         display: grid;
         place-items: center;
         min-height: 100vh;
         padding: 24px;
+        border: 1px solid var(--borda);
+        border-radius: 16px;
         background: var(--fundo);
         color: var(--texto);
         font-family: var(--fonte);

@@ -7,9 +7,12 @@ este repositório (público, para os instaladores e as atualizações serem baix
   jeitos (menu do ícone; padrão widget): **widget** (sem bordas, fora da barra de tarefas, always-on-bottom, todas as
   áreas de trabalho, arrastar pela faixa de cima) e **por cima** (bordas, always-on-top). Três tamanhos (padrão médio):
   pequeno 340 px, médio 420 px, grande 480 px (alturas conforme a tela). Abre ao ligar (autostart), uma instância só,
-  lembra lugar, fechar = esconder, no Mac sem ícone no Dock; procura atualização ao abrir e a cada 6 h (pergunta antes). Tela de abertura local (`abertura/`) confere a
+  lembra lugar, fechar = esconder, no Mac sem ícone no Dock; procura atualização ao abrir e a cada 1 h e atualiza sozinho (baixa, instala, reabre e avisa com notificação). Tela de abertura local (`abertura/`) confere a
   internet antes de abrir o painel.
-- **Segurança**: a página remota só tem notificação e arrastar a janela (`src-tauri/capabilities/remoto.json`). Navegação:
+- **Segurança**: a página remota só tem notificação, arrastar a janela e dois comandos nossos: `ajustar_altura`
+  (altura da janela segue o conteúdo, dentro do limite do tamanho) e `abrir_menu` (botão ⋯ abre o menu do ícone)
+  (`src-tauri/capabilities/remoto.json`, manifesto em `build.rs`). Janela transparente (macOSPrivateApi): o painel
+  desenha o cartão arredondado. Aparência (sistema/clara/escura) aplicada à página a cada carregamento. Navegação:
   painel e telas de entrada ficam no programa; o resto da Central e outros sites abrem no navegador pelo próprio
   programa (`decidir_navegacao` em `src-tauri/src/lib.rs`). A página pede "abrir no navegador" com `?no-navegador`.
 - **Atualização**: plugin updater, chave em `~/.tauri/central-da-educacao-painel.key` (senha no Chaveiro
